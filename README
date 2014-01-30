@@ -1,0 +1,8 @@
+QtCompress module for Qt 5
+
+A public API for QZipReader and QZipWriter in an easy to use module
+
+Just run qmake and the make to build and install
+
+Then when you want to use QZip in your project, just add the following line to your .pro file
+QT += compress
