@@ -55,7 +55,7 @@
 
 // Zip standard version for archives handled by this API
 // (actually, the only basic support of this version is implemented but it is enough for now)
-#define ZIP_VERSION 20
+#define ZIP_VERSION 45
 
 #if defined(Q_OS_WIN)
 #  undef S_IFREG
@@ -103,6 +103,15 @@
 
 QT_BEGIN_NAMESPACE
 
+static inline quint64 readUInt64(const uchar *data)
+{
+    return (data[0]) + (data[1]<<8) + (data[2]<<16) + (data[3]<<24) +
+           ((quint64)data[4]<<32) +
+           ((quint64)data[5]<<40) +
+           ((quint64)data[6]<<48) +
+           ((quint64)data[7]<<56);
+}
+
 static inline uint readUInt(const uchar *data)
 {
     return (data[0]) + (data[1]<<8) + (data[2]<<16) + (data[3]<<24);
@@ -125,6 +134,18 @@ static inline void writeUShort(uchar *data, ushort i)
 {
     data[0] = i & 0xff;
     data[1] = (i>>8) & 0xff;
+}
+
+static inline void copyUInt64(uchar *dest, const uchar *src)
+{
+    dest[0] = src[0];
+    dest[1] = src[1];
+    dest[2] = src[2];
+    dest[3] = src[3];
+    dest[4] = src[4];
+    dest[5] = src[5];
+    dest[6] = src[6];
+    dest[7] = src[7];
 }
 
 static inline void copyUInt(uchar *dest, const uchar *src)
@@ -380,6 +401,12 @@ struct LocalFileHeader
     uchar uncompressed_size[4];
     uchar file_name_length[2];
     uchar extra_field_length[2];
+};
+
+struct ExtensibleDataField
+{
+    uchar header[2];
+    uchar data_size[2];
 };
 
 struct DataDescriptor
@@ -976,7 +1003,7 @@ QByteArray QZipReader::fileData(const QString &fileName) const
 
     ushort version_needed = readUShort(header.h.version_needed);
     if (version_needed > ZIP_VERSION) {
-        qWarning("QZip: .ZIP specification version %d implementationis needed to extract the data.", version_needed);
+        qWarning("QZip: .ZIP specification version %d implementation is needed to extract the data.", version_needed);
         return QByteArray();
     }
 
@@ -989,8 +1016,54 @@ QByteArray QZipReader::fileData(const QString &fileName) const
     d->device->seek(start);
     LocalFileHeader lh;
     d->device->read((char *)&lh, sizeof(LocalFileHeader));
-    uint skip = readUShort(lh.file_name_length) + readUShort(lh.extra_field_length);
+    uint skip = readUShort(lh.file_name_length);
     d->device->seek(d->device->pos() + skip);
+
+    // read extra fields
+    ushort extra_field_length = readUShort(lh.extra_field_length);
+    while (extra_field_length > sizeof(ExtensibleDataField)) {
+        ExtensibleDataField df;
+
+        d->device->read((char *)&df, sizeof(ExtensibleDataField));
+        extra_field_length -= sizeof(ExtensibleDataField);
+
+        ushort header = readUShort(df.header);
+        ushort data_size = readUShort(df.data_size);
+
+        if (extra_field_length < data_size) {
+            qWarning("QZip: Invalid extra field length");
+            return QByteArray();
+        }
+
+        extra_field_length -= data_size;
+
+        if (header == 0x0001) { // ZIP64
+            const QByteArray ba = d->device->read(data_size);
+            if (ba.length() != data_size) {
+                qWarning() << "QZip: Failed to read extra field in zip file, file may be incomplete";
+                return QByteArray();
+            }
+
+            const uchar *data = (const uchar *) ba.constData();
+
+            if (uncompressed_size == -1) {
+                uncompressed_size = readUInt64(data);
+                data += 8;
+            }
+            if (compressed_size == -1) {
+                compressed_size = readUInt64(data);
+                data += 8;
+            }
+            if (start == -1) {
+                start = readUInt64(data);
+                data += 8;
+            }
+
+            break;
+        } else {
+            d->device->seek(d->device->pos() + data_size);
+        }
+    }
 
     int compression_method = readUShort(lh.compression_method);
     //qDebug("file=%s: compressed_size=%d, uncompressed_size=%d", fileName.toLocal8Bit().data(), compressed_size, uncompressed_size);
