@@ -41,7 +41,7 @@
 #ifndef QZIPWRITER_H
 #define QZIPWRITER_H
 
-#include <QtCore/qglobal.h>
+#include <qtcompressglobal.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qfile.h>
 
@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
 
 class QZipWriterPrivate;
 
-class Q_GUI_EXPORT QZipWriter
+class QTCOMPRESS_EXPORT QZipWriter
 {
 public:
     explicit QZipWriter(const QString &fileName, QIODevice::OpenMode mode = (QIODevice::WriteOnly | QIODevice::Truncate) );
